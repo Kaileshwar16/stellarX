@@ -5,10 +5,48 @@ import numpy as np
 from django.http import JsonResponse
 from django.shortcuts import render
 from sgp4.api import Satrec, jday
+from skyfield.api import load, wgs84
 
 TLE_FEED = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle"
 
-# helper: fetch TLEs (returns list of tuples: (name, line1, line2))
+# Load your current satellite TLE data
+# For simplicity, we assume you already have satellite positions in `get_all_satellites()`
+
+def suggest_launch(request):
+    limit = int(request.GET.get('limit', 200))
+    tles = fetch_tles(limit=limit)
+    sats = []
+    for name, l1, l2 in tles:
+        try:
+            sat = Satrec.twoline2rv(l1, l2)
+            r = sat_ecipos(sat)
+            sats.append({'name': name, 'x': float(r[0]), 'y': float(r[1]), 'z': float(r[2])})
+        except Exception:
+            continue
+
+    min_alt = 400
+    max_alt = 1200
+    step = 10
+    safe_altitudes = []
+    for alt in range(min_alt, max_alt, step):
+        collision = False
+        for s in sats:
+            dist = np.linalg.norm([s['x'], s['y'], s['z']]) / 1000
+            if abs(dist - alt) < 10:
+                collision = True
+                break
+        if not collision:
+            safe_altitudes.append(alt)
+
+    if not safe_altitudes:
+        return JsonResponse({"error": "No safe altitudes found"}, status=400)
+
+    # return altitude + some orbit info for drawing
+    return JsonResponse({
+        "suggested_altitude_km": safe_altitudes[0],
+        "inclination_deg": 0,  # equatorial orbit for simplicity
+        "raan_deg": 0           # start from x-axis
+    })
 def fetch_tles(limit=200):
     try:
         text = requests.get(TLE_FEED, timeout=10).text.strip().splitlines()
