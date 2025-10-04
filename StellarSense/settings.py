@@ -48,6 +48,8 @@ INSTALLED_APPS = [
     'channels',
     'calender',
     'gravity_simulation',
+    'space_tracker',
+
 ]
 
 

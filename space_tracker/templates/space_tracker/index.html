@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Space Tracker</title>
+<script src="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Cesium.js"></script>
+<link href="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+<style>
+  html, body, #cesiumContainer { width: 100%; height: 100%; margin: 0; padding: 0; }
+  #alertBox { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.5); color: white; padding: 10px; max-width: 300px; font-size: 14px; }
+</style>
+</head>
+<body>
+<div id="cesiumContainer"></div>
+<div id="alertBox">Loading alerts...</div>
+
+<script>
+const viewer = new Cesium.Viewer('cesiumContainer', {sceneMode: Cesium.SceneMode.SCENE3D, timeline: true, animation: true});
+const entities = new Map();
+
+async function fetchSats(){
+  const res = await fetch('/space-tracker/api/satellites/?limit=300');
+  const data = await res.json();
+  return data;
+}
+
+function updateSats(data){
+  const names = new Set(data.map(s=>s.name));
+  for(const key of Array.from(entities.keys())){
+    if(!names.has(key)){
+      viewer.entities.remove(entities.get(key));
+      entities.delete(key);
+    }
+  }
+  data.forEach(s => {
+    const pos = Cesium.Cartesian3.fromElements(s.x*1000, s.y*1000, s.z*1000);
+    if(entities.has(s.name)){
+      entities.get(s.name).position = pos;
+    } else {
+      const ent = viewer.entities.add({name:s.name, position: pos, point: {pixelSize:6}, label:{text:s.name, show:false}});
+      entities.set(s.name, ent);
+    }
+  });
+}
+
+async function fetchAlerts(){
+  const res = await fetch('/space-tracker/api/alerts/?th=5&limit=300');
+  const a = await res.json();
+  const box = document.getElementById('alertBox');
+  if(a.length === 0) box.innerText = 'No close approaches detected (snapshot)';
+  else box.innerHTML = a.slice(0,10).map(x=>`<div><b>${x.sat1}</b> ↔ <b>${x.sat2}</b> : ${x.distance_km} km</div>`).join('');
+}
+
+async function tick(){
+  try{
+    const sats = await fetchSats();
+    updateSats(sats);
+    await fetchAlerts();
+  }catch(e){
+    console.error(e);
+  }
+}
+
+tick();
+setInterval(tick, 15000);
+</script>
+</body>
+</html>
